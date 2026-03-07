@@ -11,6 +11,7 @@ const DEFAULT_INPUT: FiscalInput = {
   joursSite: 0,
   congesPayes: 25,
   rtt: 0,
+  joursTeleTravail: 0,
   puissanceFiscale: 0,
   versementPer1: 0,
   dons66: 0,
@@ -20,6 +21,7 @@ const DEFAULT_INPUT: FiscalInput = {
   joursSite2: 0,
   congesPayes2: 25,
   rtt2: 0,
+  joursTeleTravail2: 0,
   versementPer2: 0,
 };
 

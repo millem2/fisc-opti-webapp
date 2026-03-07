@@ -194,7 +194,7 @@ const SCENARIOS: Scenario[] = [
   {
     label: "Mariage / PACS",
     description: "Passage en déclaration commune (2 parts de base)",
-    applicable: (inp) => inp.situationFamiliale !== "marie_pacse",
+    applicable: (inp) => inp.situationFamiliale === "concubin",
     mutate: (inp) => ({ ...inp, situationFamiliale: "marie_pacse" }),
   },
   {
@@ -480,9 +480,10 @@ async function exportPdf(input: FiscalInput, result: FiscalResult, label?: strin
       ["Salaire brut (D1)", euro(input.revenu1)],
       ...(input.situationFamiliale === "marie_pacse" ? [["Salaire brut (D2)", euro(input.revenu2)]] : []),
       ["Distance domicile-travail (aller)", `${input.distanceKmAller} km`],
-      ["Jours sur site", input.joursSite === 0 ? "Calcul auto" : `${input.joursSite} j`],
       ["Congés payés", `${input.congesPayes} j`],
       ["RTT", `${input.rtt} j`],
+      ["Télétravail", `${input.joursTeleTravail} j`],
+      ["Jours sur site (calculé)", `${Math.max(0, 260 - input.congesPayes - input.rtt - input.joursTeleTravail - 8)} j`],
       ["Versements PER (D1)", euro(input.versementPer1)],
       ...(input.situationFamiliale === "marie_pacse" ? [["Versements PER (D2)", euro(input.versementPer2)]] : []),
       ["Dons 66%", euro(input.dons66)],
@@ -784,8 +785,8 @@ export default function SimulationPage() {
             </div>
           )}
 
-          {/* PACS analysis (concubin with partner data) */}
-          {result.pacsAnalysis && (
+          {/* PACS analysis (concubin with partner data only) */}
+          {result.pacsAnalysis && tempInput.situationFamiliale === "concubin" && (
             <PacsAdviceCard analysis={result.pacsAnalysis} aiComment={aiSummary?.pacsComment} />
           )}
 

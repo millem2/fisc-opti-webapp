@@ -9,6 +9,7 @@ export interface FiscalInput {
   joursSite: number;
   congesPayes: number;
   rtt: number;
+  joursTeleTravail: number;
   puissanceFiscale: number; // 0=flat, 3-7=CV fiscal
   versementPer1: number;
   dons66: number;
@@ -20,6 +21,7 @@ export interface FiscalInput {
   joursSite2: number;
   congesPayes2: number;
   rtt2: number;
+  joursTeleTravail2: number;
   versementPer2: number;
 }
 

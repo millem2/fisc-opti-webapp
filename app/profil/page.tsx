@@ -162,18 +162,14 @@ const PASS_2025 = 46368;
 function computeWarnings(input: FiscalInput) {
   const w: Record<string, string> = {};
 
-  // Jours sur site: hard maximum
-  if (input.joursSite > 261) w.joursSite = "Maximum 261 jours ouvrés par an";
-
-  // CP / RTT sanity
+  // CP / RTT / TT sanity
   if (input.congesPayes > 50) w.congesPayes = "Plus de 50 j de congés — vérifiez";
   if (input.rtt > 30) w.rtt = "Plus de 30 j de RTT — vérifiez";
+  if (input.joursTeleTravail > 200) w.joursTeleTravail = "Plus de 200 j de télétravail — vérifiez";
 
-  // Show computed joursSite when in auto mode
-  if (input.joursSite === 0 && (input.congesPayes > 0 || input.rtt > 0)) {
-    const computed = Math.max(0, 260 - input.congesPayes - input.rtt - 8);
-    w.joursSiteInfo = `Calcul auto : ${computed} j sur site (260 − ${input.congesPayes} CP − ${input.rtt} RTT − 8 fériés)`;
-  }
+  // Always show computed joursSite
+  const computed = Math.max(0, 260 - input.congesPayes - input.rtt - input.joursTeleTravail - 8);
+  w.joursSiteInfo = `${computed} j sur site (260 − ${input.congesPayes} CP − ${input.rtt} RTT − ${input.joursTeleTravail} TT − 8 fériés)`;
 
   // Distance > 80 km : administration peut exiger justification
   if (input.distanceKmAller > 80) {
@@ -312,14 +308,12 @@ export default function ProfilPage() {
             <Counter label="Nombre d'enfants à charge" value={input.nbEnfants} onChange={field("nbEnfants")} />
             <NumberField label="Revenu brut annuel" value={input.revenu1} onChange={field("revenu1")} suffix="€" hint="Salaire brut avant charges patronales" />
             <NumberField label="Distance domicile-travail (aller)" value={input.distanceKmAller} onChange={field("distanceKmAller")} suffix="km" hint="Distance aller simple en km" warning={warn.distanceKmAller} />
-            <NumberField label="Jours travaillés sur site / an" value={input.joursSite} onChange={field("joursSite")} suffix="j"
-              hint={warn.joursSiteInfo ?? "Laissez 0 pour un calcul automatique via CP + RTT"}
-              error={warn.joursSite}
-            />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <NumberField label="Congés payés" value={input.congesPayes} onChange={field("congesPayes")} suffix="j" warning={warn.congesPayes} />
               <NumberField label="RTT" value={input.rtt} onChange={field("rtt")} suffix="j" warning={warn.rtt} />
+              <NumberField label="Télétravail" value={input.joursTeleTravail} onChange={field("joursTeleTravail")} suffix="j" warning={warn.joursTeleTravail} />
             </div>
+            <p className="text-xs text-gray-400 -mt-1">{warn.joursSiteInfo}</p>
           </div>
         </div>
 
@@ -348,11 +342,12 @@ export default function ProfilPage() {
             <div className="flex flex-col gap-3.5">
               <NumberField label="Revenu brut annuel" value={input.revenu2} onChange={field("revenu2")} suffix="€" />
               <NumberField label="Distance domicile-travail (aller)" value={input.distanceKm2} onChange={field("distanceKm2")} suffix="km" />
-              <NumberField label="Jours travaillés sur site / an" value={input.joursSite2} onChange={field("joursSite2")} suffix="j" hint="Laissez 0 pour un calcul automatique via CP + RTT" />
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <NumberField label="Congés payés" value={input.congesPayes2} onChange={field("congesPayes2")} suffix="j" />
                 <NumberField label="RTT" value={input.rtt2} onChange={field("rtt2")} suffix="j" />
+                <NumberField label="Télétravail" value={input.joursTeleTravail2} onChange={field("joursTeleTravail2")} suffix="j" />
               </div>
+              <p className="text-xs text-gray-400 -mt-1">{Math.max(0, 260 - input.congesPayes2 - input.rtt2 - input.joursTeleTravail2 - 8)} j sur site</p>
               <NumberField label="Versements PER" value={input.versementPer2} onChange={field("versementPer2")} suffix="€" />
               {isConcubin && (
                 <p className="text-xs text-gray-400">Les enfants sont supposés déclarés par le déclarant 1.</p>
@@ -393,11 +388,11 @@ export default function ProfilPage() {
             </div>
             {!input.presenceCantine && (
               <NumberField
-                label="Tickets restaurant (valeur annuelle)"
+                label="Part patronale ticket resto / jour"
                 value={input.tiquetRestau}
                 onChange={field("tiquetRestau")}
-                suffix="€"
-                hint="Montant total des tickets restaurant reçus"
+                suffix="€/j"
+                hint="Part employeur du ticket restaurant par jour (ex : 6 € si ticket à 10 € pris en charge à 60 %)"
               />
             )}
           </div>
