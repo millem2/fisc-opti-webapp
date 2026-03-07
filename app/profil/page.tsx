@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import AppShell from "@/app/components/AppShell";
 import { useFiscalStore } from "@/lib/fiscal-store";
 import { getSelf, saveProfile } from "@/lib/api";
-import { FiscalInput } from "@/types/fiscal";
+import { FiscalInput, InvestorProfile } from "@/types/fiscal";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const PRIMARY = "#1B3D2C";
@@ -155,6 +155,50 @@ function CardHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
   );
 }
 
+// ── Investor profile pill options ────────────────────────────────────────────
+
+const RISQUE_OPTIONS = [
+  { value: "faible", label: "Prudent", hint: "Capital garanti, rendement faible" },
+  { value: "moyen", label: "Équilibré", hint: "Rendement modéré, volatilité limitée" },
+  { value: "eleve", label: "Dynamique", hint: "Rendement élevé, forte volatilité" },
+];
+
+const HORIZON_OPTIONS = [
+  { value: "court", label: "< 3 ans", hint: "Disponibilité à court terme" },
+  { value: "moyen", label: "3–8 ans", hint: "Moyen terme" },
+  { value: "long", label: "> 8 ans", hint: "Long terme / retraite" },
+];
+
+function PillGroup({ label, options, value, onChange }: {
+  label: string;
+  options: { value: string; label: string; hint: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <FieldLabel>{label}</FieldLabel>
+      <div className="flex gap-2 flex-wrap">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            title={o.hint}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+              value === o.value
+                ? "border-[#1B3D2C] bg-[#eef6f1] text-[#1B3D2C]"
+                : "border-gray-200 text-gray-500 hover:border-gray-400 hover:text-gray-700"
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Validation ────────────────────────────────────────────────────────────────
 
 const PASS_2025 = 46368;
@@ -259,6 +303,11 @@ export default function ProfilPage() {
     return (v: typeof input[K]) => setInput({ ...input, [key]: v });
   }
 
+  const ip = input.investorProfile ?? { capaciteEpargne: 0, toleranceRisque: "moyen", horizonInvestissement: "moyen" };
+  function ipField<K extends keyof InvestorProfile>(key: K) {
+    return (v: InvestorProfile[K]) => setInput({ ...input, investorProfile: { ...ip, [key]: v } });
+  }
+
   const saveLabel = {
     idle: null,
     saving: <span className="text-xs text-gray-400 animate-pulse">Sauvegarde…</span>,
@@ -357,7 +406,7 @@ export default function ProfilPage() {
         )}
       </div>
 
-      {/* ── Row 2: Transport & Épargne ── */}
+      {/* ── Row 2: Transport, Épargne & Niches fiscales ── */}
       <div className="grid grid-cols-2 gap-4">
 
         {/* Transport & frais professionnels */}
@@ -435,6 +484,100 @@ export default function ProfilPage() {
               hint="Max 1 000 € à 75 % — le surplus est traité à 66 %"
               warning={warn.dons75}
             />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Row 3: Niches fiscales ── */}
+      <div className="mt-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <CardHeader
+          title="Niches fiscales"
+          icon={
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              <polyline points="9 22 9 12 15 12 15 22" />
+            </svg>
+          }
+        />
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-3.5">
+            <NumberField
+              label="Dépenses emploi à domicile"
+              value={input.depensesEmploiDomicile}
+              onChange={field("depensesEmploiDomicile")}
+              suffix="€"
+              hint="Ménage, jardinage, garde d'enfant à domicile — crédit d'impôt 50 % (Art. 199 sexdecies)"
+            />
+          </div>
+          <div className="flex flex-col gap-3.5">
+            <NumberField
+              label="Frais de garde d'enfants hors domicile"
+              value={input.depensesGardeEnfants}
+              onChange={field("depensesGardeEnfants")}
+              suffix="€"
+              hint="Crèche, halte-garderie, périscolaire — crédit d'impôt 50 % (Art. 200 quater B)"
+            />
+            {input.nbEnfants > 0 && (
+              <Counter
+                label="Dont enfants de moins de 6 ans"
+                value={input.nbEnfantsMoins6Ans}
+                onChange={(v) => field("nbEnfantsMoins6Ans")(Math.min(v, input.nbEnfants))}
+              />
+            )}
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mt-3">
+          Le total de ces crédits d&apos;impôt est plafonné à 10 000 € / an (Art. 200-0 A CGI).
+        </p>
+      </div>
+
+      {/* ── Row 4: Profil investisseur ── */}
+      <div className="mt-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <CardHeader
+          title="Profil investisseur"
+          icon={
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+              <polyline points="16 7 22 7 22 13" />
+            </svg>
+          }
+        />
+        <p className="text-xs text-gray-400 mb-4">
+          Ces informations permettent d&apos;adapter les recommandations d&apos;investissement à votre situation (PER, assurance-vie, PEA, FCPI…).
+        </p>
+        <div className="grid grid-cols-2 gap-5">
+          <div className="flex flex-col gap-4">
+            <PillGroup
+              label="Tolérance au risque"
+              options={RISQUE_OPTIONS}
+              value={ip.toleranceRisque}
+              onChange={ipField("toleranceRisque")}
+            />
+            <PillGroup
+              label="Horizon d'investissement"
+              options={HORIZON_OPTIONS}
+              value={ip.horizonInvestissement}
+              onChange={ipField("horizonInvestissement")}
+            />
+          </div>
+          <div className="flex flex-col gap-4">
+            <NumberField
+              label="Capacité d'épargne mensuelle"
+              value={ip.capaciteEpargne}
+              onChange={ipField("capaciteEpargne")}
+              suffix="€/mois"
+              hint="Montant que vous pouvez mettre de côté chaque mois après toutes vos dépenses"
+            />
+            {ip.capaciteEpargne > 0 && (
+              <div
+                className="rounded-xl px-4 py-3 text-xs leading-relaxed"
+                style={{ backgroundColor: "#eef6f1", color: PRIMARY }}
+              >
+                <span className="font-semibold">Capacité annuelle :</span>{" "}
+                {(ip.capaciteEpargne * 12).toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 })}
+                {" "}— utilisée pour calculer votre objectif PER atteignable.
+              </div>
+            )}
           </div>
         </div>
       </div>

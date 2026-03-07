@@ -11,6 +11,7 @@
     "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@heroui/react": "^2.8.9",
     "@heroui/theme": "^2.4.26",
     "autoprefixer": "^10.4.27",

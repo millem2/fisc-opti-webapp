@@ -1,3 +1,9 @@
+export interface InvestorProfile {
+  capaciteEpargne: number;           // monthly savings capacity in €/month
+  toleranceRisque: string;           // "faible" | "moyen" | "eleve"
+  horizonInvestissement: string;     // "court" | "moyen" | "long"
+}
+
 export interface FiscalInput {
   // Person 1
   situationFamiliale: string; // "celibataire" | "marie_pacse" | "concubin"
@@ -14,6 +20,14 @@ export interface FiscalInput {
   versementPer1: number;
   dons66: number;
   dons75: number;
+
+  // Investor profile (optional)
+  investorProfile?: InvestorProfile;
+
+  // Crédits d'impôt niches fiscales
+  depensesEmploiDomicile: number; // emploi à domicile (Art. 199 sexdecies)
+  depensesGardeEnfants: number;   // garde hors domicile (Art. 200 quater B)
+  nbEnfantsMoins6Ans: number;     // enfants < 6 ans (ouvre le crédit garde)
 
   // Person 2 (couple only)
   revenu2: number;
@@ -57,6 +71,10 @@ export interface FiscalResult {
   revenuNetForfait: number;
   revenuNetReel: number;
   parts: number;
+  creditEmploiDomicile: number;
+  creditGardeEnfants: number;
+  totalCreditsNiches: number;
+  plafonnementNichesApplique: boolean;
   impotNetForfait: number;
   impotNetReel: number;
   tmi: number;

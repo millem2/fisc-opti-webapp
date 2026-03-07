@@ -82,6 +82,15 @@ function DetailDuCalcul({ result }: { result: FiscalResult }) {
   if (decoteEtReductions > 0) {
     rows.push({ label: "Décote & réductions appliquées", value: `− ${euro(decoteEtReductions)}`, negative: true });
   }
+  if (result.creditEmploiDomicile > 0) {
+    rows.push({ label: "Crédit emploi à domicile (50 %)", value: `− ${euro(result.creditEmploiDomicile)}`, negative: true });
+  }
+  if (result.creditGardeEnfants > 0) {
+    rows.push({ label: "Crédit garde d'enfants (50 %)", value: `− ${euro(result.creditGardeEnfants)}`, negative: true });
+  }
+  if (result.plafonnementNichesApplique) {
+    rows.push({ label: "⚠ Plafond niches fiscales atteint (10 000 €)", value: "", muted: true });
+  }
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -443,6 +452,7 @@ async function exportPdf(input: FiscalInput, result: FiscalResult, label?: strin
       ["Déduction PER", euro(result.totalPer), euro(result.totalPer)],
       ["Revenu net imposable", euro(result.revenuNetForfait), euro(result.revenuNetReel)],
       ["Parts fiscales", String(result.parts), String(result.parts)],
+      ...(result.totalCreditsNiches > 0 ? [["Crédits niches fiscales", euro(result.totalCreditsNiches), euro(result.totalCreditsNiches)]] : []),
       ["Impôt net", euro(result.impotNetForfait), euro(result.impotNetReel)],
     ],
     theme: "grid",
@@ -488,6 +498,9 @@ async function exportPdf(input: FiscalInput, result: FiscalResult, label?: strin
       ...(input.situationFamiliale === "marie_pacse" ? [["Versements PER (D2)", euro(input.versementPer2)]] : []),
       ["Dons 66%", euro(input.dons66)],
       ["Dons 75%", euro(input.dons75)],
+      ...(input.depensesEmploiDomicile > 0 ? [["Emploi à domicile", euro(input.depensesEmploiDomicile)]] : []),
+      ...(input.depensesGardeEnfants > 0 ? [["Garde d'enfants hors domicile", euro(input.depensesGardeEnfants)]] : []),
+      ...(input.nbEnfantsMoins6Ans > 0 ? [["Enfants < 6 ans", String(input.nbEnfantsMoins6Ans)]] : []),
     ],
     theme: "striped",
     headStyles: { fillColor: [100, 100, 100] },
@@ -776,7 +789,23 @@ export default function SimulationPage() {
                       <p className="text-sm text-gray-700">
                         {tip.type === "PER"
                           ? `Versez ${euro(tip.montant)} sur un PER pour économiser ${euro(tip.economieImpot)} d'impôt.`
-                          : `Un don de ${euro(tip.montant)} à 66% vous ferait économiser ${euro(tip.economieImpot)}.`}
+                          : tip.type === "DONS_66"
+                          ? `Un don de ${euro(tip.montant)} à 66 % vous ferait économiser ${euro(tip.economieImpot)}.`
+                          : tip.type === "EMPLOI_DOMICILE"
+                          ? `Vous pouvez déclarer ${euro(tip.montant)} de dépenses emploi à domicile supplémentaires (crédit d'impôt ~${euro(tip.economieImpot)}).`
+                          : tip.type === "GARDE_ENFANT"
+                          ? `Vous pouvez déclarer ${euro(tip.montant)} de frais de garde d'enfants supplémentaires (crédit d'impôt ~${euro(tip.economieImpot)}).`
+                          : tip.type === "PLAFOND_NICHES"
+                          ? "Le plafond global des niches fiscales (10 000 €) est atteint — certains crédits ont été écrêtés."
+                          : tip.type === "PER_MENSUEL"
+                          ? `Avec votre capacité d'épargne, vous pouvez viser ${euro(tip.montant)}/an sur votre PER — économie fiscale estimée : ${euro(tip.economieImpot)}.`
+                          : tip.type === "FCPI_FIP"
+                          ? `Investir dans un FCPI ou FIP (jusqu'à ${euro(tip.montant)}) vous donne une réduction d'impôt de 18 % soit ${euro(tip.economieImpot)} — horizon conseillé 5–8 ans.`
+                          : tip.type === "ASSURANCE_VIE"
+                          ? "L'assurance-vie est adaptée à votre profil : fiscalité allégée après 8 ans, flexibilité des supports et transmission optimisée."
+                          : tip.type === "PEA"
+                          ? "Le PEA est recommandé pour votre horizon long : plus-values et dividendes exonérés d'IR après 5 ans (plafond 150 000 €)."
+                          : `Opportunité de ${euro(tip.montant)} pour économiser ${euro(tip.economieImpot)}.`}
                       </p>
                     </div>
                   ))}
