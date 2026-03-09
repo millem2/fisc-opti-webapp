@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { FiscalInput, FiscalResult } from "@/types/fiscal";
+
+const GO_API = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/api/v1";
 
 function euro(v: number) {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(v);
@@ -96,8 +97,8 @@ function buildPrompt(input: FiscalInput, result: FiscalResult): string {
   }
 
   const jsonShape = hasPacs
-    ? `{ "summary": "...", "tips": ["...", "..."], "pacsComment": "..." }`
-    : `{ "summary": "...", "tips": ["...", "..."] }`;
+    ? `{ "summary": "...", "tips": ["...", "..."], "infos": ["...", "..."], "pacsComment": "..." }`
+    : `{ "summary": "...", "tips": ["...", "..."], "infos": ["...", "..."] }`;
 
   return `Voici les résultats fiscaux 2025 d'un contribuable français :
 ${lines.join("\n")}
@@ -107,39 +108,92 @@ ${jsonShape}
 
 Règles :
 - "summary" : 2 à 3 phrases en français clair expliquant la situation, le TMI et la piste d'optimisation principale. Cite les chiffres exacts.
-- "tips" : liste de 3 à 5 conseils courts et actionnables. Chaque conseil doit mentionner le bénéfice chiffré quand il existe, et être adapté au profil investisseur (risque, horizon, capacité d'épargne).
+- "tips" : liste de 2 à 4 conseils d'investissement ou d'optimisation actionnables (PER, FCPI/FIP, PEA, assurance-vie, emploi à domicile, garde d'enfants…). Chaque conseil doit mentionner le bénéfice chiffré quand il existe, et être adapté au profil investisseur (risque, horizon, capacité d'épargne). NE PAS inclure les dons ici.
+- "infos" : liste de 1 à 3 informations fiscales pures (non actionnables comme conseil d'investissement). Par exemple : indiquer que si le contribuable fait un don de X € à un organisme éligible à 66 %, il peut déduire Y € de ses impôts. Formuler comme une information ("Si vous faites un don de X…, vous pouvez déduire Y…"), pas comme un conseil ("Faites un don de…"). Inclure également le plafond des niches fiscales si applicable.
 ${hasPacs ? '- "pacsComment" : 1 à 2 phrases pédagogiques sur l\'impact du PACS avec les chiffres fournis.' : ""}
 - N'invente aucun chiffre. Utilise uniquement les données fournies. Sois direct et concret.`;
 }
 
+const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const SYSTEM_PROMPT =
+  "Tu es un conseiller fiscal et patrimonial français expert. Tu rédiges des analyses fiscales claires, précises et actionnables, " +
+  "adaptées au profil investisseur de l'utilisateur (tolérance au risque, horizon, capacité d'épargne). " +
+  "Tu n'inventes aucun chiffre — tu utilises uniquement les données fournies. " +
+  "Tu réponds toujours en JSON strict, sans markdown ni texte autour.";
+
+async function callGemini(prompt: string, apiKey: string): Promise<unknown> {
+  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        maxOutputTokens: 8192,
+        temperature: 0.2,
+      },
+    }),
+  });
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text().catch(() => res.statusText)}`);
+  const data = await res.json();
+  const text: string = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini: réponse vide");
+  return JSON.parse(text);
+}
+
+async function callAI(input: FiscalInput, result: FiscalResult) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  const prompt = buildPrompt(input, result);
+  const MAX_RETRIES = 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await callGemini(prompt, apiKey);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[AI] tentative ${attempt}/${MAX_RETRIES} échouée : ${lastError.message}`);
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, 500 * attempt)); // 500ms, 1s, …
+      }
+    }
+  }
+
+  throw lastError ?? new Error("AI: échec après 3 tentatives");
+}
+
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "ANTHROPIC_API_KEY not configured" }, { status: 503 });
+  const authorization = req.headers.get("Authorization");
+  const { input }: { input: FiscalInput } = await req.json();
+
+  // 1. Call Go backend for fiscal computation
+  const goRes = await fetch(`${GO_API}/fiscal/optimize`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(authorization ? { Authorization: authorization } : {}),
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!goRes.ok) {
+    const text = await goRes.text().catch(() => goRes.statusText);
+    return NextResponse.json({ error: text }, { status: goRes.status });
   }
 
+  const result: FiscalResult = await goRes.json();
+
+  // 2. Call Claude for AI summary (best-effort — never blocks the fiscal result)
+  let aiSummary = null;
   try {
-    const client = new Anthropic({ apiKey });
-    const body: { input: FiscalInput; result: FiscalResult } = await req.json();
-    const prompt = buildPrompt(body.input, body.result);
-
-    const message = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
-      system:
-        "Tu es un conseiller fiscal et patrimonial français expert. Tu rédiges des analyses fiscales claires, précises et actionnables, " +
-        "adaptées au profil investisseur de l'utilisateur (tolérance au risque, horizon, capacité d'épargne). " +
-        "Tu n'inventes aucun chiffre — tu utilises uniquement les données fournies. " +
-        "Tu réponds toujours en JSON strict, sans markdown ni texte autour.",
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const raw = message.content[0].type === "text" ? message.content[0].text : "";
-    const content = JSON.parse(raw);
-    return NextResponse.json(content);
+    aiSummary = await callAI(input, result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("ai-summary error:", message, err);
-    return NextResponse.json({ error: "AI summary unavailable", detail: message }, { status: 500 });
+    console.error("AI summary error:", err instanceof Error ? err.message : err);
   }
+
+  return NextResponse.json({ result, aiSummary });
 }

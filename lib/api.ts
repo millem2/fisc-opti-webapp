@@ -131,6 +131,29 @@ export async function optimize(input: FiscalInput): Promise<FiscalResult> {
   });
 }
 
+export interface AiSummary {
+  summary: string;
+  tips: string[];
+  infos?: string[];
+  pacsComment?: string;
+}
+
+export async function optimizeWithAI(input: FiscalInput): Promise<{ result: FiscalResult; aiSummary?: AiSummary }> {
+  const creds = getStoredCredentials();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (creds) headers["Authorization"] = authHeader(creds.username, creds.password);
+  const res = await fetch("/api/simulate", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ input }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`API ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
 export interface SimulationRecord {
   id: string;
   userId: string;
@@ -149,4 +172,22 @@ export async function saveSimulation(input: FiscalInput, label?: string): Promis
 
 export async function listSimulations(): Promise<SimulationRecord[]> {
   return apiFetch<SimulationRecord[]>("/simulations");
+}
+
+export interface LeverInfo {
+  id: string;
+  nom: string;
+  /** "deduction" | "reduction_impot" | "credit_impot" | "placement" | "mecanisme" */
+  categorie: string;
+  description: string;
+  mecanisme: string;
+  plafonds: string[];
+  articleCGI: string;
+  sourceBofip: string;
+  exemple: string;
+  conseil: string;
+}
+
+export async function listLevers(): Promise<LeverInfo[]> {
+  return apiFetch<LeverInfo[]>("/levers");
 }

@@ -35,7 +35,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import AppShell from "@/app/components/AppShell";
 import { useFiscalStore } from "@/lib/fiscal-store";
-import { optimize, saveSimulation } from "@/lib/api";
+import { optimize, optimizeWithAI, saveSimulation, listLevers, AiSummary, LeverInfo } from "@/lib/api";
 import { BracketDetail, FiscalInput, FiscalResult, PacsAnalysis } from "@/types/fiscal";
 
 function euro(v: number) {
@@ -542,25 +542,228 @@ async function exportPdf(input: FiscalInput, result: FiscalResult, label?: strin
   doc.save(filename);
 }
 
+// ── Lever modal ───────────────────────────────────────────────────────────────
+
+const LEVER_CATEGORY_STYLE: Record<string, { label: string; pill: string }> = {
+  deduction:      { label: "Déduction du revenu", pill: "bg-purple-100 text-purple-700" },
+  reduction_impot:{ label: "Réduction d'impôt",   pill: "bg-blue-100 text-blue-700" },
+  credit_impot:   { label: "Crédit d'impôt",       pill: "bg-emerald-100 text-emerald-700" },
+  placement:      { label: "Enveloppe d'investissement", pill: "bg-amber-100 text-amber-700" },
+  mecanisme:      { label: "Mécanisme fiscal",     pill: "bg-gray-100 text-gray-600" },
+};
+
+function LeverModal({ lever, levers, isOpen, onClose, onSelectLever }: {
+  lever: LeverInfo | null;
+  levers: LeverInfo[];
+  isOpen: boolean;
+  onClose: () => void;
+  onSelectLever: (l: LeverInfo) => void;
+}) {
+  const cat = lever ? (LEVER_CATEGORY_STYLE[lever.categorie] ?? LEVER_CATEGORY_STYLE.mecanisme) : null;
+  const bofipUrl = lever ? `https://bofip.impots.gouv.fr/bofip/${lever.sourceBofip}.html` : "";
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="3xl"
+      scrollBehavior="inside"
+      classNames={{ base: "max-h-[90vh]", body: "p-0", header: "border-b border-gray-100 pb-4" }}
+    >
+      <ModalContent>
+        {/* ── Detail view ── */}
+        {lever ? (
+          <>
+            <ModalHeader className="flex flex-col gap-2 px-6 pt-6 pb-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => onSelectLever(null as unknown as LeverInfo)}
+                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 mr-1"
+                >
+                  ← Tous les leviers
+                </button>
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${cat!.pill}`}>
+                  {cat!.label}
+                </span>
+                <span className="text-xs text-gray-400 font-mono">{lever.articleCGI}</span>
+              </div>
+              <h2 className="text-xl font-bold text-gray-900 leading-tight">{lever.nom}</h2>
+              <p className="text-sm text-gray-500 font-normal leading-relaxed">{lever.description}</p>
+            </ModalHeader>
+
+            <ModalBody>
+              <div className="px-6 py-5 flex flex-col gap-6">
+                {/* Fonctionnement */}
+                <section>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Fonctionnement détaillé</p>
+                  <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-line bg-gray-50 rounded-xl border border-gray-100 p-4">
+                    {lever.mecanisme}
+                  </div>
+                </section>
+
+                {/* Plafonds */}
+                {lever.plafonds.length > 0 && (
+                  <section>
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Plafonds & limites</p>
+                    <ul className="flex flex-col gap-2">
+                      {lever.plafonds.map((p, i) => (
+                        <li key={i} className="flex items-start gap-3 text-sm text-gray-700">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#1B3D2C] mt-2 shrink-0" />
+                          {p}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
+                {/* Exemple */}
+                <section>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Exemple chiffré</p>
+                  <div className="text-sm text-gray-800 font-mono leading-relaxed bg-[#1B3D2C]/5 rounded-xl border border-[#1B3D2C]/10 p-4 whitespace-pre-line">
+                    {lever.exemple}
+                  </div>
+                </section>
+
+                {/* Conseil */}
+                <section className="flex items-start gap-3 rounded-xl bg-amber-50 border border-amber-100 p-4">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2"
+                    strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5">
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <div>
+                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-1">Conseil pratique</p>
+                    <p className="text-sm text-amber-800 leading-relaxed">{lever.conseil}</p>
+                  </div>
+                </section>
+
+                {/* Source */}
+                <div className="flex items-center gap-3 pt-1 border-t border-gray-100 text-xs text-gray-400 flex-wrap">
+                  <span>{lever.articleCGI}</span>
+                  <span>·</span>
+                  <span>BOFIP : {lever.sourceBofip}</span>
+                  <span>·</span>
+                  <a href={bofipUrl} target="_blank" rel="noopener noreferrer"
+                    className="underline hover:text-gray-600 transition-colors">
+                    Consulter sur bofip.impots.gouv.fr ↗
+                  </a>
+                </div>
+              </div>
+            </ModalBody>
+
+            <ModalFooter className="border-t border-gray-100 px-6 py-4">
+              <p className="text-xs text-gray-400 flex-1">Calcul indicatif — barème 2025. Consultez un expert pour votre situation.</p>
+              <Button size="sm" variant="flat" onPress={onClose}>Fermer</Button>
+            </ModalFooter>
+          </>
+        ) : (
+          /* ── Catalogue view ── */
+          <>
+            <ModalHeader className="px-6 pt-6 pb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Leviers fiscaux 2025</h2>
+                <p className="text-sm text-gray-500 font-normal mt-1">
+                  Sélectionnez un levier pour voir sa fiche détaillée avec bases légales et exemples chiffrés.
+                </p>
+              </div>
+            </ModalHeader>
+
+            <ModalBody>
+              <div className="px-6 py-4 flex flex-col gap-2">
+                {levers.map((l) => {
+                  const c = LEVER_CATEGORY_STYLE[l.categorie] ?? LEVER_CATEGORY_STYLE.mecanisme;
+                  return (
+                    <button
+                      key={l.id}
+                      onClick={() => onSelectLever(l)}
+                      className="flex items-start gap-4 text-left rounded-xl border border-gray-100 p-4 hover:bg-gray-50 hover:border-gray-200 transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.pill}`}>{c.label}</span>
+                          <span className="text-xs text-gray-400 font-mono">{l.articleCGI}</span>
+                        </div>
+                        <p className="font-semibold text-gray-900 text-sm">{l.nom}</p>
+                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed line-clamp-2">{l.description}</p>
+                      </div>
+                      <span className="text-gray-300 text-xs shrink-0 mt-1">→</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </ModalBody>
+
+            <ModalFooter className="border-t border-gray-100 px-6 py-4">
+              <p className="text-xs text-gray-400 flex-1">Sources : CGI & BOFIP — barème 2025</p>
+              <Button size="sm" variant="flat" onPress={onClose}>Fermer</Button>
+            </ModalFooter>
+          </>
+        )}
+      </ModalContent>
+    </Modal>
+  );
+}
+
+// ── Leviers link banner ───────────────────────────────────────────────────────
+
+function LeviersLink({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      onClick={onOpen}
+      className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-left hover:bg-gray-100 transition-colors w-full mt-1"
+    >
+      <div className="w-7 h-7 rounded-lg bg-[#1B3D2C]/10 flex items-center justify-center shrink-0">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1B3D2C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+        </svg>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800">Comprendre les leviers fiscaux</p>
+        <p className="text-xs text-gray-400 mt-0.5">Fiches détaillées avec bases légales, plafonds exacts et exemples chiffrés</p>
+      </div>
+      <span className="text-gray-300 text-xs shrink-0">→</span>
+    </button>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function SimulationPage() {
   const { authenticated, initializing } = useAuth();
   const router = useRouter();
-  const { input, setInput, result, setResult } = useFiscalStore();
+  const { input, setInput, result, setResult, restoredSimulation, setRestoredSimulation } = useFiscalStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [scenarios, setScenarios] = useState<ScenarioResult[]>([]);
   const [savedSimLabel, setSavedSimLabel] = useState<string | undefined>();
   const [savingSimulation, setSavingSimulation] = useState(false);
-  const [aiSummary, setAiSummary] = useState<{ summary: string; tips: string[]; pacsComment?: string } | null>(null);
+  const [aiSummary, setAiSummary] = useState<AiSummary | null>(null);
   const [showTempPanel, setShowTempPanel] = useState(false);
   const [tempInput, setTempInput] = useState<FiscalInput>(input);
+  const [isRestored, setIsRestored] = useState(false);
+  const [levers, setLevers] = useState<LeverInfo[]>([]);
+  const [selectedLever, setSelectedLever] = useState<LeverInfo | null>(null);
   const { isOpen: isSaveOpen, onOpen: onSaveOpen, onClose: onSaveClose } = useDisclosure();
+  const { isOpen: isLeverOpen, onOpen: onLeverOpen, onClose: onLeverClose } = useDisclosure();
 
   useEffect(() => {
     if (!initializing && !authenticated) router.replace("/login");
   }, [initializing, authenticated, router]);
+
+  // Start fresh unless we were explicitly asked to restore a saved simulation
+  useEffect(() => {
+    if (restoredSimulation) {
+      setRestoredSimulation(false); // consume the flag
+      setIsRestored(true);
+    } else {
+      setResult(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Fetch lever descriptions silently in background
+  useEffect(() => {
+    listLevers().then(setLevers).catch(() => {/* non-blocking */});
+  }, []);
 
   // Keep tempInput in sync with the saved profile when not in temp mode
   useEffect(() => {
@@ -573,18 +776,11 @@ export default function SimulationPage() {
     setScenarios([]);
     setSavedSimLabel(undefined);
     setAiSummary(null);
+    setIsRestored(false);
     try {
-      const res = await optimize(tempInput);
+      const { result: res, aiSummary: ai } = await optimizeWithAI(tempInput);
       setResult(res);
-      // Async AI summary — non-blocking, silently ignored on error
-      fetch("/api/ai-summary", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: tempInput, result: res }),
-      })
-        .then((r) => r.ok ? r.json() : null)
-        .then((data) => { if (data && !data.error) setAiSummary(data); })
-        .catch(() => undefined);
+      if (ai) setAiSummary(ai);
       const baseImpot = Math.min(res.impotNetForfait, res.impotNetReel);
       const applicableScenarios = SCENARIOS.filter((s) => s.applicable(tempInput));
       const initial: ScenarioResult[] = applicableScenarios.map((s) => ({
@@ -612,6 +808,11 @@ export default function SimulationPage() {
     }
   }, [tempInput, setResult]);
 
+  function openLever(leverId: string) {
+    const lever = levers.find((l) => l.id === leverId);
+    if (lever) { setSelectedLever(lever); onLeverOpen(); }
+  }
+
   async function handleSaveSimulation(label: string) {
     setSavingSimulation(true);
     try {
@@ -630,7 +831,15 @@ export default function SimulationPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-6 gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Simulation fiscale</h1>
+          <button
+            onClick={() => router.push("/historique")}
+            className="text-xs text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1 transition-colors"
+          >
+            ← Simulations
+          </button>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {isRestored ? "Simulation sauvegardée" : "Nouvelle simulation"}
+          </h1>
           <p className="text-sm text-gray-500 mt-0.5">Barème progressif IR 2025 (revenus 2024)</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end shrink-0">
@@ -673,10 +882,19 @@ export default function SimulationPage() {
             className="font-semibold text-white rounded-lg px-4"
             style={{ backgroundColor: SIM_PRIMARY }}
           >
-            Lancer la simulation
+            {isRestored ? "Relancer la simulation" : "Lancer la simulation"}
           </Button>
         </div>
       </div>
+
+      {isRestored && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 text-sm text-blue-700">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          Simulation restaurée depuis votre historique. Cliquez sur &quot;Relancer la simulation&quot; pour obtenir une analyse actualisée avec les conseils IA.
+        </div>
+      )}
 
       {showTempPanel && (
         <div className="mb-5">
@@ -760,55 +978,129 @@ export default function SimulationPage() {
                   </svg>
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-800">Analyse & recommandations</h3>
-                  <p className="text-xs text-gray-400">{aiSummary ? "Générée par IA sur la base de vos chiffres exacts" : "Chargement de l'analyse…"}</p>
+                  <h3 className="font-semibold text-gray-800">Conseils & informations</h3>
+                  <p className="text-xs text-gray-400">{aiSummary ? "Générée par IA sur la base de vos chiffres exacts" : "Basée sur vos chiffres exacts"}</p>
                 </div>
               </div>
               {aiSummary ? (
                 <div className="p-5 flex flex-col gap-4">
                   {/* Summary paragraph */}
                   <p className="text-sm text-gray-700 leading-relaxed">{aiSummary.summary}</p>
-                  {/* Tips */}
+                  {/* Tips (investment / actionnable) */}
                   {aiSummary.tips.length > 0 && (
-                    <ul className="flex flex-col gap-2">
-                      {aiSummary.tips.map((tip, i) => (
-                        <li key={i} className="flex items-start gap-3 rounded-xl border border-gray-100 p-3">
-                          <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: "#3aaa5c" }} />
-                          <p className="text-sm text-gray-700">{tip}</p>
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Conseils</p>
+                      <ul className="flex flex-col gap-2">
+                        {aiSummary.tips.map((tip, i) => (
+                          <li key={i} className="flex items-start gap-3 rounded-xl border border-gray-100 p-3">
+                            <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: "#3aaa5c" }} />
+                            <p className="text-sm text-gray-700">{tip}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
+                  {/* Infos (declarative, e.g. donations) */}
+                  {aiSummary.infos && aiSummary.infos.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Informations</p>
+                      <ul className="flex flex-col gap-2">
+                        {aiSummary.infos.map((info, i) => (
+                          <li key={i} className="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-3">
+                            <span className="w-2 h-2 rounded-full mt-1.5 shrink-0 bg-blue-400" />
+                            <p className="text-sm text-gray-700">{info}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <LeviersLink onOpen={() => { setSelectedLever(null); onLeverOpen(); }} />
                 </div>
               ) : (
-                <div className="p-5 flex flex-col gap-3">
-                  {/* Fallback: raw tips while AI loads */}
-                  {result.tips.map((tip, i) => (
-                    <div key={i} className="flex items-start gap-3 rounded-xl border border-gray-100 p-3">
-                      <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: "#3aaa5c" }} />
-                      <p className="text-sm text-gray-700">
-                        {tip.type === "PER"
-                          ? `Versez ${euro(tip.montant)} sur un PER pour économiser ${euro(tip.economieImpot)} d'impôt.`
-                          : tip.type === "DONS_66"
-                          ? `Un don de ${euro(tip.montant)} à 66 % vous ferait économiser ${euro(tip.economieImpot)}.`
-                          : tip.type === "EMPLOI_DOMICILE"
-                          ? `Vous pouvez déclarer ${euro(tip.montant)} de dépenses emploi à domicile supplémentaires (crédit d'impôt ~${euro(tip.economieImpot)}).`
-                          : tip.type === "GARDE_ENFANT"
-                          ? `Vous pouvez déclarer ${euro(tip.montant)} de frais de garde d'enfants supplémentaires (crédit d'impôt ~${euro(tip.economieImpot)}).`
-                          : tip.type === "PLAFOND_NICHES"
-                          ? "Le plafond global des niches fiscales (10 000 €) est atteint — certains crédits ont été écrêtés."
-                          : tip.type === "PER_MENSUEL"
-                          ? `Avec votre capacité d'épargne, vous pouvez viser ${euro(tip.montant)}/an sur votre PER — économie fiscale estimée : ${euro(tip.economieImpot)}.`
-                          : tip.type === "FCPI_FIP"
-                          ? `Investir dans un FCPI ou FIP (jusqu'à ${euro(tip.montant)}) vous donne une réduction d'impôt de 18 % soit ${euro(tip.economieImpot)} — horizon conseillé 5–8 ans.`
-                          : tip.type === "ASSURANCE_VIE"
-                          ? "L'assurance-vie est adaptée à votre profil : fiscalité allégée après 8 ans, flexibilité des supports et transmission optimisée."
-                          : tip.type === "PEA"
-                          ? "Le PEA est recommandé pour votre horizon long : plus-values et dividendes exonérés d'IR après 5 ans (plafond 150 000 €)."
-                          : `Opportunité de ${euro(tip.montant)} pour économiser ${euro(tip.economieImpot)}.`}
-                      </p>
-                    </div>
-                  ))}
+                <div className="p-5 flex flex-col gap-4">
+                  {/* Fallback: raw tips while AI loads — split into Conseils / Informations */}
+                  {(() => {
+                    const r = result!;
+                    const INFO_TYPES = ["DONS_66", "DONS_75", "PLAFOND_NICHES"];
+                    const actionTips = r.tips.filter((t) => !INFO_TYPES.includes(t.type));
+                    const infoTips = r.tips.filter((t) => INFO_TYPES.includes(t.type));
+
+                    // Maps tip type to the corresponding lever id on the /leviers page
+                    const LEVER_LINK: Record<string, string> = {
+                      PER: "PER", PER_MENSUEL: "PER",
+                      EMPLOI_DOMICILE: "EMPLOI_DOMICILE",
+                      GARDE_ENFANT: "GARDE_ENFANT",
+                      FCPI_FIP: "FCPI_FIP",
+                      ASSURANCE_VIE: "ASSURANCE_VIE",
+                      PEA: "PEA",
+                      DONS_66: "DONS_66",
+                      DONS_75: "DONS_75",
+                    };
+
+                    function tipText(tip: (typeof r.tips)[number]) {
+                      switch (tip.type) {
+                        case "PER": return `Versez ${euro(tip.montant)} sur un PER pour économiser ${euro(tip.economieImpot)} d'impôt.`;
+                        case "EMPLOI_DOMICILE": return `Vous pouvez déclarer ${euro(tip.montant)} de dépenses emploi à domicile supplémentaires (crédit d'impôt ~${euro(tip.economieImpot)}).`;
+                        case "GARDE_ENFANT": return `Vous pouvez déclarer ${euro(tip.montant)} de frais de garde d'enfants supplémentaires (crédit d'impôt ~${euro(tip.economieImpot)}).`;
+                        case "PER_MENSUEL": return `Avec votre capacité d'épargne, vous pouvez viser ${euro(tip.montant)}/an sur votre PER — économie fiscale estimée : ${euro(tip.economieImpot)}.`;
+                        case "FCPI_FIP": return `Investir dans un FCPI ou FIP (jusqu'à ${euro(tip.montant)}) vous donne une réduction d'impôt de 18 % soit ${euro(tip.economieImpot)} — horizon conseillé 5–8 ans.`;
+                        case "ASSURANCE_VIE": return "L'assurance-vie est adaptée à votre profil : fiscalité allégée après 8 ans, flexibilité des supports et transmission optimisée.";
+                        case "PEA": return "Le PEA est recommandé pour votre horizon long : plus-values et dividendes exonérés d'IR après 5 ans (plafond 150 000 €).";
+                        case "DONS_66": return `Si vous faites un don de ${euro(tip.montant)} à un organisme éligible à 66 %, vous pouvez déduire ${euro(tip.economieImpot)} de votre impôt.`;
+                        case "DONS_75": return `Si vous faites un don de ${euro(tip.montant)} à un organisme éligible à 75 %, vous pouvez déduire ${euro(tip.economieImpot)} de votre impôt.`;
+                        case "PLAFOND_NICHES": return "Le plafond global des niches fiscales (10 000 €) est atteint — certains crédits ont été écrêtés.";
+                        default: return `Opportunité de ${euro(tip.montant)} pour économiser ${euro(tip.economieImpot)}.`;
+                      }
+                    }
+
+                    return (
+                      <>
+                        {actionTips.length > 0 && (
+                          <div className="flex flex-col gap-2">
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Conseils</p>
+                            {actionTips.map((tip, i) => (
+                              <div key={i} className="flex items-start gap-3 rounded-xl border border-gray-100 p-3">
+                                <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: "#3aaa5c" }} />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-gray-700">{tipText(tip)}</p>
+                                  {LEVER_LINK[tip.type] && levers.length > 0 && (
+                                    <button
+                                      onClick={() => openLever(LEVER_LINK[tip.type])}
+                                      className="text-xs text-[#1B3D2C] font-medium mt-1 hover:underline"
+                                    >
+                                      En savoir plus sur ce levier →
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {infoTips.length > 0 && (
+                          <div className="flex flex-col gap-2">
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest">Informations</p>
+                            {infoTips.map((tip, i) => (
+                              <div key={i} className="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-3">
+                                <span className="w-2 h-2 rounded-full mt-1.5 shrink-0 bg-blue-400" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-gray-700">{tipText(tip)}</p>
+                                  {LEVER_LINK[tip.type] && levers.length > 0 && (
+                                    <button
+                                      onClick={() => openLever(LEVER_LINK[tip.type])}
+                                      className="text-xs text-blue-600 font-medium mt-1 hover:underline"
+                                    >
+                                      En savoir plus sur ce levier →
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <LeviersLink onOpen={() => { setSelectedLever(null); onLeverOpen(); }} />
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -840,7 +1132,7 @@ export default function SimulationPage() {
             </svg>
           </div>
           <p className="text-gray-700 text-lg font-semibold">Prêt à calculer votre impôt</p>
-          <p className="text-sm text-gray-400 max-w-xs">Complétez votre profil et lancez la simulation pour obtenir votre estimation fiscale 2025.</p>
+          <p className="text-sm text-gray-400 max-w-xs">Les données de votre profil sont pré-remplies. Lancez la simulation pour obtenir votre estimation fiscale 2025.</p>
           <button
             onClick={runSimulation}
             className="mt-2 px-6 py-2.5 rounded-xl font-semibold text-white text-sm"
@@ -856,6 +1148,14 @@ export default function SimulationPage() {
         onClose={onSaveClose}
         onSave={handleSaveSimulation}
         saving={savingSimulation}
+      />
+
+      <LeverModal
+        lever={selectedLever}
+        levers={levers}
+        isOpen={isLeverOpen}
+        onClose={onLeverClose}
+        onSelectLever={(l) => setSelectedLever(l ?? null)}
       />
     </AppShell>
   );

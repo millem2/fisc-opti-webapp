@@ -36,13 +36,18 @@ const DEFAULT_INPUT: FiscalInput = {
 interface FiscalStore {
   input: FiscalInput;
   result: FiscalResult | null;
+  /** true when the result was loaded from a saved simulation (not freshly computed) */
+  restoredSimulation: boolean;
   setInput: (input: FiscalInput) => void;
   setResult: (result: FiscalResult | null) => void;
+  setRestoredSimulation: (v: boolean) => void;
 }
 
 export const useFiscalStore = create<FiscalStore>((set) => ({
   input: DEFAULT_INPUT,
   result: null,
+  restoredSimulation: false,
   setInput: (input) => set({ input }),
   setResult: (result) => set({ result }),
+  setRestoredSimulation: (restoredSimulation) => set({ restoredSimulation }),
 }));

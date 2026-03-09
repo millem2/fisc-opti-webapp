@@ -19,6 +19,7 @@ import { useAuth } from "@/lib/auth-context";
 import AppShell from "@/app/components/AppShell";
 import { listSimulations, SimulationRecord } from "@/lib/api";
 import { FiscalInput, FiscalResult, BracketDetail } from "@/types/fiscal";
+import { useFiscalStore } from "@/lib/fiscal-store";
 
 function euro(v: number) {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(v);
@@ -193,10 +194,11 @@ async function exportSimulationPdf(record: SimulationRecord) {
 
 // ── Simulation row / detail ───────────────────────────────────────────────────
 
-function SimulationRow({ record, expanded, onToggle }: {
+function SimulationRow({ record, expanded, onToggle, onView }: {
   record: SimulationRecord;
   expanded: boolean;
   onToggle: () => void;
+  onView: () => void;
 }) {
   const r = record.fiscalResult;
   const bestImpot = Math.min(r.impotNetForfait, r.impotNetReel);
@@ -247,9 +249,12 @@ function SimulationRow({ record, expanded, onToggle }: {
       {/* Expanded detail */}
       {expanded && (
         <div className="border-t border-gray-100 px-5 py-5 bg-[#f8fafb]">
-          <div className="flex justify-end mb-4">
-            <Button size="sm" variant="flat" color="primary" onPress={() => exportSimulationPdf(record)}>
+          <div className="flex justify-end gap-2 mb-4">
+            <Button size="sm" variant="flat" onPress={() => exportSimulationPdf(record)}>
               Télécharger PDF
+            </Button>
+            <Button size="sm" color="primary" onPress={onView}>
+              Voir la simulation →
             </Button>
           </div>
 
@@ -338,10 +343,18 @@ function SimulationRow({ record, expanded, onToggle }: {
 export default function HistoriquePage() {
   const { authenticated, initializing } = useAuth();
   const router = useRouter();
+  const { setInput, setResult, setRestoredSimulation } = useFiscalStore();
   const [simulations, setSimulations] = useState<SimulationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  function handleViewSimulation(record: SimulationRecord) {
+    setInput(record.fiscalInput);
+    setResult(record.fiscalResult);
+    setRestoredSimulation(true);
+    router.push("/simulation");
+  }
 
   useEffect(() => {
     if (initializing) return;
@@ -362,15 +375,19 @@ export default function HistoriquePage() {
     <AppShell>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mes simulations</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Simulations</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {simulations.length > 0
               ? `${simulations.length} simulation${simulations.length > 1 ? "s" : ""} sauvegardée${simulations.length > 1 ? "s" : ""}`
-              : "Retrouvez ici toutes vos simulations sauvegardées"}
+              : "Lancez une simulation ou retrouvez ici vos simulations sauvegardées"}
           </p>
         </div>
-        <Button color="primary" onPress={() => router.push("/simulation")}>
-          Nouvelle simulation →
+        <Button
+          color="primary"
+          onPress={() => router.push("/simulation")}
+          className="font-semibold"
+        >
+          + Nouvelle simulation
         </Button>
       </div>
 
@@ -387,10 +404,10 @@ export default function HistoriquePage() {
           <CardBody className="flex flex-col items-center gap-4 text-center">
             <p className="text-gray-500 text-lg font-medium">Aucune simulation sauvegardée</p>
             <p className="text-sm text-gray-400">
-              Lancez une simulation depuis l&apos;onglet Simulation et cliquez sur &quot;Sauvegarder&quot;.
+              Lancez une simulation et cliquez sur &quot;Sauvegarder&quot; pour la retrouver ici.
             </p>
             <Button color="primary" onPress={() => router.push("/simulation")}>
-              Lancer une simulation
+              + Nouvelle simulation
             </Button>
           </CardBody>
         </Card>
@@ -404,6 +421,7 @@ export default function HistoriquePage() {
               record={sim}
               expanded={expandedId === sim.id}
               onToggle={() => setExpandedId(expandedId === sim.id ? null : sim.id)}
+              onView={() => handleViewSimulation(sim)}
             />
           ))}
         </div>
