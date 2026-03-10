@@ -7,7 +7,8 @@ import { useAuth } from "@/lib/auth-context";
 import AppShell from "@/app/components/AppShell";
 import { useFiscalStore } from "@/lib/fiscal-store";
 import { getSelf, saveProfile } from "@/lib/api";
-import { FiscalInput, InvestorProfile } from "@/types/fiscal";
+import { FiscalInput, InvestorProfile, VoitureFonction } from "@/types/fiscal";
+import DocumentScanModal from "@/app/components/DocumentScanModal";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const PRIMARY = "#1B3D2C";
@@ -199,6 +200,28 @@ function PillGroup({ label, options, value, onChange }: {
   );
 }
 
+// ── Voiture de fonction helper ────────────────────────────────────────────────
+
+const DEFAULT_VF: VoitureFonction = {
+  active: false,
+  prixCatalogue: 0,
+  ancienVehicule: false,
+  employeurPayeCarburant: false,
+  electrique: false,
+};
+
+function computeAvantageNature(vf: VoitureFonction | undefined): number {
+  if (!vf || !vf.active || !vf.prixCatalogue) return 0;
+  let rate: number;
+  if (vf.employeurPayeCarburant) {
+    rate = vf.ancienVehicule ? 0.09 : 0.12;
+  } else {
+    rate = vf.ancienVehicule ? 0.06 : 0.09;
+  }
+  const avantage = vf.prixCatalogue * rate * (vf.electrique ? 0.5 : 1);
+  return Math.round(avantage);
+}
+
 // ── Validation ────────────────────────────────────────────────────────────────
 
 const PASS_2025 = 46368;
@@ -218,6 +241,11 @@ function computeWarnings(input: FiscalInput) {
   // Distance > 80 km : administration peut exiger justification
   if (input.distanceKmAller > 80) {
     w.distanceKmAller = "Au-delà de 80 km, une justification de trajet peut être demandée";
+  }
+
+  // Voiture de fonction + frais km : incompatibles pour le même trajet
+  if (input.voitureFonction?.active && input.distanceKmAller > 0) {
+    w.distanceKmAller = "Voiture de fonction détectée : les frais km ne sont déductibles que si vous utilisez un véhicule personnel pour ce trajet";
   }
 
   // PER plafond : 10 % du revenu net fiscal, max 8 × PASS = 37 094 €
@@ -259,6 +287,7 @@ export default function ProfilPage() {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [scanOpen, setScanOpen] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextSave = useRef(true);
@@ -325,6 +354,20 @@ export default function ProfilPage() {
             <p className="text-sm text-gray-500">Renseignez votre situation pour une simulation précise.</p>
             {saveLabel}
           </div>
+          <button
+            type="button"
+            onClick={() => setScanOpen(true)}
+            className="mt-2 flex items-center gap-1.5 text-sm font-medium hover:underline"
+            style={{ color: PRIMARY }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="12" y1="18" x2="12" y2="12" />
+              <line x1="9" y1="15" x2="15" y2="15" />
+            </svg>
+            Compléter depuis un document
+          </button>
         </div>
         <Button
           onPress={() => router.push("/simulation")}
@@ -444,6 +487,69 @@ export default function ProfilPage() {
                 hint="Part employeur du ticket restaurant par jour (ex : 6 € si ticket à 10 € pris en charge à 60 %)"
               />
             )}
+            {/* Voiture de fonction */}
+            <div className="border-t border-gray-100 pt-3.5">
+              <div className="flex items-center gap-3 py-1">
+                <Switch
+                  isSelected={input.voitureFonction?.active ?? false}
+                  onValueChange={(v) => {
+                    const vf = input.voitureFonction ?? { ...DEFAULT_VF };
+                    setInput({ ...input, voitureFonction: { ...vf, active: v } });
+                  }}
+                  size="sm"
+                />
+                <span className="text-sm text-gray-700">Voiture de fonction mise à disposition</span>
+              </div>
+              {input.voitureFonction?.active && (() => {
+                const vf = input.voitureFonction ?? { ...DEFAULT_VF };
+                const updateVf = (patch: Partial<VoitureFonction>) =>
+                  setInput({ ...input, voitureFonction: { ...vf, ...patch } });
+                const avantage = computeAvantageNature(vf);
+                return (
+                  <div className="flex flex-col gap-3 mt-3">
+                    <NumberField
+                      label="Prix catalogue TTC du véhicule"
+                      value={vf.prixCatalogue}
+                      onChange={(v) => updateVf({ prixCatalogue: v })}
+                      suffix="€"
+                      hint="Prix d'achat catalogue TTC neuf du véhicule"
+                    />
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-3 py-0.5">
+                        <Switch
+                          isSelected={vf.ancienVehicule}
+                          onValueChange={(v) => updateVf({ ancienVehicule: v })}
+                          size="sm"
+                        />
+                        <span className="text-sm text-gray-600">Véhicule de plus de 5 ans</span>
+                      </div>
+                      <div className="flex items-center gap-3 py-0.5">
+                        <Switch
+                          isSelected={vf.employeurPayeCarburant}
+                          onValueChange={(v) => updateVf({ employeurPayeCarburant: v })}
+                          size="sm"
+                        />
+                        <span className="text-sm text-gray-600">Carburant payé par l&apos;employeur</span>
+                      </div>
+                      <div className="flex items-center gap-3 py-0.5">
+                        <Switch
+                          isSelected={vf.electrique}
+                          onValueChange={(v) => updateVf({ electrique: v })}
+                          size="sm"
+                        />
+                        <span className="text-sm text-gray-600">Véhicule 100 % électrique</span>
+                      </div>
+                    </div>
+                    {avantage > 0 && (
+                      <div className="rounded-lg px-3 py-2 text-xs" style={{ backgroundColor: PRIMARY_LIGHT, color: PRIMARY }}>
+                        <span className="font-medium">Avantage en nature estimé : {avantage.toLocaleString("fr-FR")} €/an</span>
+                        <span className="block text-gray-500 mt-0.5">Déjà inclus dans votre revenu brut (visible sur votre fiche de paie)</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         </div>
 
@@ -530,6 +636,17 @@ export default function ProfilPage() {
           Le total de ces crédits d&apos;impôt est plafonné à 10 000 € / an (Art. 200-0 A CGI).
         </p>
       </div>
+
+      {/* ── Document scan modal ── */}
+      {scanOpen && (
+        <DocumentScanModal
+          onClose={() => setScanOpen(false)}
+          onApply={(partial) => {
+            skipNextSave.current = false;
+            setInput({ ...input, ...partial });
+          }}
+        />
+      )}
 
       {/* ── Row 4: Profil investisseur ── */}
       <div className="mt-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">

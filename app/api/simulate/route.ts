@@ -32,6 +32,13 @@ function buildPrompt(input: FiscalInput, result: FiscalResult): string {
     `Parts fiscales : ${result.parts}`,
   ];
 
+  if (result.avantageNatureVoiture > 0) {
+    const vf = input.voitureFonction;
+    const detail = vf
+      ? `${vf.electrique ? "électrique" : "thermique"}, ${vf.ancienVehicule ? "> 5 ans" : "≤ 5 ans"}, carburant ${vf.employeurPayeCarburant ? "payé employeur" : "payé salarié"}`
+      : "";
+    lines.push(`Voiture de fonction : avantage en nature ${euro(result.avantageNatureVoiture)}/an${detail ? ` (${detail})` : ""} — déjà inclus dans le revenu brut`);
+  }
   if (result.totalPer > 0) lines.push(`Versements PER déjà effectués : ${euro(result.totalPer)}`);
   if (input.dons66 > 0) lines.push(`Dons 66 % déjà effectués : ${euro(input.dons66)}`);
   if (input.dons75 > 0) lines.push(`Dons 75 % déjà effectués : ${euro(input.dons75)}`);
@@ -71,6 +78,9 @@ function buildPrompt(input: FiscalInput, result: FiscalResult): string {
         break;
       case "PEA":
         tipLines.push("PEA recommandé : plus-values et dividendes exonérés d'IR après 5 ans (plafond 150 000 €).");
+        break;
+      case "VOITURE_FONCTION":
+        tipLines.push(`Voiture de fonction : avantage en nature de ${euro(tip.montant)} inclus dans le revenu imposable — coût fiscal estimé ${euro(tip.economieImpot)} (TMI appliqué).`);
         break;
     }
   }

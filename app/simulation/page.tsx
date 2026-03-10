@@ -61,6 +61,8 @@ function StatCard({ label, value, sub, accent = false }: {
 }
 
 function DetailDuCalcul({ result }: { result: FiscalResult }) {
+  const [showReelDetail, setShowReelDetail] = useState(false);
+
   const isReel = result.methodeOptimale === "REEL";
   const deduction = isReel ? result.fraisReels : result.forfaitFrais;
   const revenuNet = isReel ? result.revenuNetReel : result.revenuNetForfait;
@@ -68,53 +70,177 @@ function DetailDuCalcul({ result }: { result: FiscalResult }) {
   const brackets = isReel ? result.bracketDetailsReel : result.bracketDetailsForfait;
   const impotBrut = (brackets || []).reduce((s, b) => s + b.impot, 0);
   const decoteEtReductions = Math.round((impotBrut - impotNet) * 100) / 100;
-  const methodLabel = isReel ? "Frais réels kilométriques (utilisés)" : "Déduction forfaitaire 10%";
+  const methodLabel = isReel ? "Frais réels kilométriques" : "Déduction forfaitaire 10 %";
 
-  const rows: Array<{ label: string; value: string; negative?: boolean; muted?: boolean }> = [
+  // Réel detail rows (always computed — shown in collapsible)
+  const reelImpotBrut = (result.bracketDetailsReel || []).reduce((s, b) => s + b.impot, 0);
+  const reelDecote = Math.round((reelImpotBrut - result.impotNetReel) * 100) / 100;
+  const diff = Math.abs(result.impotNetForfait - result.impotNetReel);
+  const reelIsOptimal = result.methodeOptimale === "REEL";
+
+  const mainRows: Array<{ label: string; value: string; negative?: boolean; muted?: boolean }> = [
     { label: "Revenu brut total", value: euro(result.revenuTotalBrut) },
     { label: methodLabel, value: `− ${euro(deduction)}`, negative: true },
   ];
   if (result.totalPer > 0) {
-    rows.push({ label: "Déduction PER", value: `− ${euro(result.totalPer)}`, negative: true });
+    mainRows.push({ label: "Déduction PER", value: `− ${euro(result.totalPer)}`, negative: true });
   }
-  rows.push({ label: "Revenu net imposable", value: euro(revenuNet) });
-  rows.push({ label: "Impôt brut (barème)", value: euro(Math.round(impotBrut * 100) / 100) });
+  mainRows.push({ label: "Revenu net imposable", value: euro(revenuNet) });
+  mainRows.push({ label: "Impôt brut (barème)", value: euro(Math.round(impotBrut * 100) / 100) });
   if (decoteEtReductions > 0) {
-    rows.push({ label: "Décote & réductions appliquées", value: `− ${euro(decoteEtReductions)}`, negative: true });
+    mainRows.push({ label: "Décote & réductions appliquées", value: `− ${euro(decoteEtReductions)}`, negative: true });
   }
   if (result.creditEmploiDomicile > 0) {
-    rows.push({ label: "Crédit emploi à domicile (50 %)", value: `− ${euro(result.creditEmploiDomicile)}`, negative: true });
+    mainRows.push({ label: "Crédit emploi à domicile (50 %)", value: `− ${euro(result.creditEmploiDomicile)}`, negative: true });
   }
   if (result.creditGardeEnfants > 0) {
-    rows.push({ label: "Crédit garde d'enfants (50 %)", value: `− ${euro(result.creditGardeEnfants)}`, negative: true });
+    mainRows.push({ label: "Crédit garde d'enfants (50 %)", value: `− ${euro(result.creditGardeEnfants)}`, negative: true });
   }
   if (result.plafonnementNichesApplique) {
-    rows.push({ label: "⚠ Plafond niches fiscales atteint (10 000 €)", value: "", muted: true });
+    mainRows.push({ label: "⚠ Plafond niches fiscales atteint (10 000 €)", value: "", muted: true });
   }
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      {/* Header */}
       <div className="px-5 py-4 border-b border-gray-100">
         <h3 className="font-semibold text-gray-800">Détail du calcul</h3>
         <p className="text-xs text-gray-400 mt-0.5">Méthode optimale : {result.methodeOptimale}</p>
       </div>
+
+      {/* Main calculation (optimal method) */}
       <div className="divide-y divide-gray-50">
-        {rows.map((row) => (
+        {mainRows.map((row) => (
           <div key={row.label} className="flex items-center justify-between px-5 py-3">
-            <span className="text-sm text-gray-600">{row.label}</span>
-            <span className={`text-sm font-medium ${row.negative ? "text-red-500" : "text-gray-800"}`}>
+            <span className={`text-sm ${row.muted ? "text-amber-600" : "text-gray-600"}`}>{row.label}</span>
+            <span className={`text-sm font-medium ${row.negative ? "text-red-500" : row.muted ? "" : "text-gray-800"}`}>
               {row.value}
             </span>
           </div>
         ))}
         {/* Impôt net — highlighted row */}
-        <div
-          className="flex items-center justify-between px-5 py-3.5"
-          style={{ backgroundColor: SIM_PRIMARY }}
-        >
+        <div className="flex items-center justify-between px-5 py-3.5" style={{ backgroundColor: SIM_PRIMARY }}>
           <span className="text-sm font-semibold text-white">Impôt net à payer</span>
           <span className="text-base font-bold text-white">{euro(impotNet)}</span>
         </div>
+      </div>
+
+      {/* Collapsible: frais réels detail */}
+      <div className="border-t border-gray-100">
+        <button
+          type="button"
+          onClick={() => setShowReelDetail((v) => !v)}
+          className="flex items-center justify-between w-full px-5 py-3 text-left hover:bg-gray-50 transition-colors group"
+        >
+          <div className="flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1B3D2C" strokeWidth="2"
+              strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v5" />
+              <circle cx="16" cy="17" r="2" /><circle cx="7" cy="17" r="2" />
+            </svg>
+            <span className="text-sm font-medium text-gray-700">Détail des frais réels</span>
+            {reelIsOptimal
+              ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Méthode utilisée</span>
+              : <span className="text-xs text-gray-400">(non utilisés — forfait plus avantageux de {euro(diff)})</span>
+            }
+          </div>
+          <svg
+            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round"
+            className={`transition-transform shrink-0 ${showReelDetail ? "rotate-180" : ""}`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+
+        {showReelDetail && (
+          <div className="px-5 pb-5 pt-1 border-t border-gray-50 flex flex-col gap-0">
+            {/* km + repas sub-breakdown */}
+            <div className="flex flex-col rounded-xl border border-gray-100 overflow-hidden mb-3">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Composition des frais réels</span>
+              </div>
+              <div className="divide-y divide-gray-50">
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="text-sm text-gray-600">Indemnités kilométriques</span>
+                  <span className="text-sm font-medium text-gray-800">{euro(result.fraisKm)}</span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="text-sm text-gray-600">Frais de repas</span>
+                  <span className="text-sm font-medium text-gray-800">{euro(result.fraisRepas)}</span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50">
+                  <span className="text-sm font-semibold text-gray-700">Total frais réels</span>
+                  <span className="text-sm font-bold text-gray-900">{euro(result.fraisReels)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Full réel calculation */}
+            <div className="flex flex-col rounded-xl border border-gray-100 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Calcul complet — méthode réelle</span>
+              </div>
+              <div className="divide-y divide-gray-50">
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="text-sm text-gray-600">Revenu brut total</span>
+                  <span className="text-sm font-medium text-gray-800">{euro(result.revenuTotalBrut)}</span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="text-sm text-gray-600">− Frais réels</span>
+                  <span className="text-sm font-medium text-red-500">− {euro(result.fraisReels)}</span>
+                </div>
+                {result.totalPer > 0 && (
+                  <div className="flex items-center justify-between px-4 py-2.5">
+                    <span className="text-sm text-gray-600">− Déduction PER</span>
+                    <span className="text-sm font-medium text-red-500">− {euro(result.totalPer)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="text-sm text-gray-600">Revenu net imposable</span>
+                  <span className="text-sm font-medium text-gray-800">{euro(result.revenuNetReel)}</span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <span className="text-sm text-gray-600">Impôt brut (barème)</span>
+                  <span className="text-sm font-medium text-gray-800">{euro(Math.round(reelImpotBrut * 100) / 100)}</span>
+                </div>
+                {reelDecote > 0 && (
+                  <div className="flex items-center justify-between px-4 py-2.5">
+                    <span className="text-sm text-gray-600">− Décote & réductions</span>
+                    <span className="text-sm font-medium text-red-500">− {euro(reelDecote)}</span>
+                  </div>
+                )}
+                <div
+                  className="flex items-center justify-between px-4 py-3"
+                  style={{ backgroundColor: reelIsOptimal ? SIM_PRIMARY : "#f9fafb" }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-semibold ${reelIsOptimal ? "text-white" : "text-gray-700"}`}>
+                      Impôt net (frais réels)
+                    </span>
+                    {reelIsOptimal && (
+                      <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full font-medium">Optimal</span>
+                    )}
+                  </div>
+                  <span className={`text-sm font-bold ${reelIsOptimal ? "text-white" : "text-gray-800"}`}>
+                    {euro(result.impotNetReel)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Comparison note */}
+            {!reelIsOptimal && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-gray-500 px-1">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                  strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                Le forfait 10 % ({euro(result.forfaitFrais)}) est plus avantageux que les frais réels ({euro(result.fraisReels)}) dans votre situation — économie de {euro(diff)}.
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,3 +1,11 @@
+export interface VoitureFonction {
+  active: boolean;
+  prixCatalogue: number;          // catalog price TTC in €
+  ancienVehicule: boolean;        // ≥ 5 years old
+  employeurPayeCarburant: boolean; // employer pays for fuel
+  electrique: boolean;            // 100% electric (50% reduction in 2025)
+}
+
 export interface InvestorProfile {
   capaciteEpargne: number;           // monthly savings capacity in €/month
   toleranceRisque: string;           // "faible" | "moyen" | "eleve"
@@ -23,6 +31,9 @@ export interface FiscalInput {
 
   // Investor profile (optional)
   investorProfile?: InvestorProfile;
+
+  // Voiture de fonction (optional) — avantage en nature, informational
+  voitureFonction?: VoitureFonction;
 
   // Crédits d'impôt niches fiscales
   depensesEmploiDomicile: number; // emploi à domicile (Art. 199 sexdecies)
@@ -62,6 +73,7 @@ export interface PacsAnalysis {
 }
 
 export interface FiscalResult {
+  avantageNatureVoiture: number;
   revenuTotalBrut: number;
   forfaitFrais: number;
   fraisKm: number;
